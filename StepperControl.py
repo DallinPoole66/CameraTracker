@@ -2,53 +2,52 @@
 Stepper motor Object
 '''
 
-import RPi.GPIO as GPIO
+from gpiozero import OutputDevice as stepper
 import time
 
 class StepperMotor():
-    SEQ = list(8)
-    SEQ[0] = [0,1,0,0]
-    SEQ[1] = [0,1,0,1]
-    SEQ[2] = [0,0,0,1]
-    SEQ[3] = [1,0,0,1]
-    SEQ[4] = [1,0,0,0]
-    SEQ[5] = [1,0,1,0]
-    SEQ[6] = [0,0,1,0]
-    SEQ[7] = [0,1,1,0]
-
+    seq = [[1,0,0,1], # Define step sequence as shown in manufacturers datasheet
+             [1,0,0,0], 
+             [1,1,0,0],
+             [0,1,0,0],
+             [0,1,1,0],
+             [0,0,1,0],
+             [0,0,1,1],
+             [0,0,0,1]]
+    
+    stepCount = len(seq)
     in_1 = None
     in_2 = None
     in_3 = None
     in_4 = None
+    stepPins = None
+    stepCounter = 0
+    waitTime = 0.004
+    stepDir = 1
 
     def __init__(self, pin_1, pin_2, pin_3, pin_4):
-        self.in_1 = pin_1
-        self.in_2 = pin_2
-        self.in_3 = pin_3
-        self.in_4 = pin_4
-        
-        GPIO.setup(self.in_1, GPIO.OUT)
-        GPIO.setup(self.in_2, GPIO.OUT)
-        GPIO.setup(self.in_3, GPIO.OUT)
-        GPIO.setup(self.in_4, GPIO.OUT)
+        self.in_1 = stepper(pin_1)
+        self.in_2 = stepper(pin_2)
+        self.in_3 = stepper(pin_3)
+        self.in_4 = stepper(pin_4)
+        self.stepPins = [self.in_1, self.in_2, self.in_3, self.in_4]
 
+    def reverseDirection(self):
+        self.stepDir = self.stepDir *-1
 
-    def set_step(self, p1, p2, p3, p4):
-        GPIO.output(self.in_1, p1)
-        GPIO.output(self.in_2, p2)
-        GPIO.output(self.in_3, p3)
-        GPIO.output(self.in_4, p4)
-
-    def forward(self, delay, steps):
+    def forward(self, steps):
         for _ in range(steps):
-            for i in range(8):
-                self.set_step(self.SEQ[i][0], self.SEQ[i][1], self.SEQ[i][2], self.SEQ[i][3] )
-                time.sleep(delay)
+            for pin in range(0,4):
+                xPin= self.stepPins[pin]          # Get GPIO
+                if self.seq[self.stepCounter][pin]!=0:
+                    xPin.on()
+                else:
+                    xPin.off()
 
-    def reverse(self, delay, steps):
-        for _ in range(steps):
-            for i in reversed(range(8)):
-                self.set_step(self.SEQ[i][0], self.SEQ[i][1], self.SEQ[i][2], self.SEQ[i][3] )
-                time.sleep(delay)
-
+            self.stepCounter += self.stepDir
+            if (self.stepCounter >= self.stepCount):
+                self.stepCounter = 0
+            if (self.stepCounter < 0):
+                self.stepCounter = self.stepCount + self.stepDir
+            time.sleep(self.waitTime)     # Wait before moving on
 
