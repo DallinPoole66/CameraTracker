@@ -2,12 +2,13 @@ import multiprocessing as mp
 import cv2
 import numpy as np
 import time
+import AngleController
 
 width = 640
 height = 480
-    
+DEAD_ZONE = width * 0.02
 
-def foo( child ):
+def foo(  ):
     return
 
 def make_capture():
@@ -15,7 +16,7 @@ def make_capture():
     cap = cv2.VideoCapture(0)
     return cap
 
-def video_in( parent ):
+def video_in( run,  yaw_in, pitch_in ):
     # initialize the HOG descriptor/person detector
     hog = cv2.HOGDescriptor()
     hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
@@ -24,16 +25,23 @@ def video_in( parent ):
     cap = make_capture()
     cv2.startWindowThread()
 
-    while( True ):
+    while( run.value == 1 ):
+        
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            with run.get_lock():
+                run.value = 0
+                break
+
         # Capture frame-by-frame
         ret, frame = cap.read()
         # resizing for faster detection
         frame = cv2.resize(frame, (width, height))
         if frame is not None:
-            parent.send(frame_calc(frame, face_cascade))
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            result_x, result_y = frame_calc( frame, face_cascade )
+            with yaw_in.get_lock():
+                yaw_in.value = result_x
+            with pitch_in.get_lock():
+                pitch_in.value = result_y
     
 
     # When everything done, release the capture
@@ -53,8 +61,7 @@ def frame_calc(frame, face_cascade):
     # using a greyscale picture, also for faster detection
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     
-    boxes = face_cascade.detectMultiScale(gray,
-    minSize=(70, 70),  minNeighbors=10)
+    boxes = face_cascade.detectMultiScale(gray)
 
     
     boxes = np.array([[x, y, x + w, y + h] for (x, y, w, h) in boxes])
@@ -64,31 +71,62 @@ def frame_calc(frame, face_cascade):
         cv2.rectangle(frame, (xA, yA), (xB, yB), (0, 255, 0), 2)
 
     
-    cv2.imshow('frame', frame)    
+    cv2.imshow('frame', frame)     
+    sum = 0
     new_x_offset = 0
     x_offset = 0
     
     if(len(boxes) > 0):
         for box in boxes:
-            new_x_offset += (box[0] + box[2]) / 2
-        new_x_offset = new_x_offset / len(boxes)
-        if(new_x_offset > width / 2):
+            sum += (box[0] + box[2]) / 2
+        
+        new_x_offset = sum / len(boxes)
+        new_x_offset -= width / 2
+
+    if ( abs(new_x_offset) > DEAD_ZONE):
+        if(new_x_offset < 0 ):
             x_offset = -1
         else:
             x_offset = 1
+
+    sum = 0
+    new_y_offset = 0
+    y_offset = 0
     
-    return x_offset
+    if(len(boxes) > 0):
+        for box in boxes:
+            sum += (box[1] + box[3]) / 2
+        
+        new_y_offset = sum / len(boxes)
+        new_y_offset -= height / 2
+
+    if ( abs(new_y_offset) > DEAD_ZONE):
+        if(new_y_offset < 0 ):
+            y_offset = -1
+        else:
+            y_offset = 1
+            
+    #print(x_offset)
+    return x_offset, y_offset
 
 
-if __name__ == '__main__':    
-    parent, child = mp.Pipe()
+if __name__ == '__main__':   
 
-    video_in_p = mp.Process(target=video_in, args=(parent, ))
-    direction_p = mp.Process(target=foo, args=(child,))
+    run = mp.Value("i", 1)
+    yaw_in = mp.Value("i", 0)
+    pitch_in = mp.Value("i", 0)
+    video_in_p = mp.Process(target=video_in, args=(run, yaw_in, pitch_in))
+    yaw_p = mp.Process(target=AngleController.motor_control, args=((23, 17, 27, 22), yaw_in, run))
+    yaw_p = mp.Process(target=AngleController.motor_control, args=((16, 19, 12, 6
+    ), yaw_in, run))
 
 
     video_in_p.start()
-    direction_p.start()
+    yaw_p.start()
 
-    while (True):
-        print(child.recv())
+    while (run.value == 1):        
+        #print(yaw_in.value)
+        pass
+    video_in_p.join()
+    yaw_p.join()
+
